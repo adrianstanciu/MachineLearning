@@ -1,0 +1,91 @@
+---
+title: "Machine Learning Project"
+author: "Adrian Stanciu"
+date: "Saturday, June 20, 2015"
+output: html_document
+---
+
+## Data retrieving and cleaning
+
+We load the data, and clean the "NA" values. Then, via exploratory data analysis,
+we remove all the columns that would be incorrect predictors: name, timestamps, window,
+and aggregates of values (min, max, avg, var, stddev, kurtosis, skewness).
+This will ensure having a dataset with only numeric measures.
+
+```{r}
+df <- read.csv(file = "pml-training.csv", na.strings=c("NA","","#DIV/0!"))
+
+df$X <- NULL
+df$user_name <- NULL
+df <- df[, -grep("window", colnames(df))]
+df <- df[, -grep("timestamp", colnames(df))]
+df <- df[, -grep("kurtosis", colnames(df))]
+df <- df[, -grep("skewness", colnames(df))]
+df <- df[, -grep("stddev_", colnames(df))]
+df <- df[, -grep("avg_", colnames(df))]
+df <- df[, -grep("var_", colnames(df))]
+df <- df[, -grep("min_", colnames(df))]
+df <- df[, -grep("max_", colnames(df))]
+df <- df[, -grep("amplitude_", colnames(df))]
+```
+
+## Prepare data for cross validation
+We split the data for cross-validation into training and testing data.
+Normally the percentage is 70% / 30%, but in order to avoid very long running times,
+I only took 30% of the data for training, as it gave accurate enough resuls in a shorter time.
+```{r}
+library(caret)
+set.seed(3400)
+
+inTrain <- createDataPartition(y=df$classe, p=0.3, list = FALSE)
+training <- df[inTrain, ]
+testing <- df[-inTrain, ]
+```
+
+## Build a model on the training set
+First, I tried a linear model, but it did not work properly. Therefore I tried a
+more complex model, a "Random Forest" model.
+
+```{r}
+# Use random forest
+# Add cross-validation
+tc <- trainControl(allowParallel = TRUE, method="cv", number=3)
+modelFitRandomForest <- train(classe~., data=training, method="rf", trainControl=tc)
+fm <- modelFitRandomForest$finalModel
+print(fm)
+```
+The in-sample error is 1.87%.
+
+Check with varImp the accuracy of the predictors. This allowed me via trial and error
+to remove unwanted columns such as the first column X that were influencing the model.
+```{r}
+varImp(fm)
+```
+## Plot accuracy
+```{r}
+plot(modelFitRandomForest)
+```
+
+## Calculate the error with cross-validation
+```{r}
+pred <- predict(modelFitRandomForest, newdata = testing)
+confusionMatrix(pred, testing$classe)
+```
+
+The accuracy is 98%. Therefore the expected out-of-sample error is 2%.
+
+## Predict values from the testing data
+```{r}
+testSet <- read.csv(file = "pml-testing.csv", na.strings=c("NA","","#DIV/0!"))
+answers <-  as.character(predict(modelFitRandomForest, testSet))
+
+# write prediction files
+pml_write_files = function(x){
+    n = length(x)
+    for(i in 1:n){
+        filename = paste0("./prediction/problem_id_", i, ".txt")
+        write.table(x[i], file = filename, quote = FALSE, row.names = FALSE, col.names = FALSE)
+    }
+}
+pml_write_files(answers)
+```
